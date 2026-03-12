@@ -40,6 +40,21 @@ const int RB_FR = A6;
 const int RB_PWM = 5;
 const int RB_OF = A7;
 
+// uint(unsigned integer 8-bit type) 0~255
+enum State: uint8_t {WAIT_HEADER, READ_W1, READ_W2, READ_W3, READ_W4, WAIT_FOOTER};
+State currentState = WAIT_HEADER;
+/*
+速度計算公式：(x - 127) * 2
+analogWrite(0~255)
+127-127*2=0
+256-126*2=260
+0-127*2=-254
+*/
+uint8_t wheelSpeeds[4] = {127, 127, 127, 127};
+
+// 強制停止計時器
+unsigned long lastReceiveTime = 0;
+
 
 void setup() {
     // 此Serial = Serial0 = debugSerial 默認連電腦USB
@@ -73,19 +88,6 @@ void setup() {
     digitalWrite(RB_OF, HIGH);
 }
 
-void loop() {
-    if (Serial1.available()) {
-        int speedLF = Serial1.parseInt();
-        int speedRF = Serial1.parseInt();
-        int speedLB = Serial1.parseInt();
-        int speedRB = Serial1.parseInt();
-
-        if (Serial1.read() == '\n') {
-            motorSpeeds(speedLF, speedRF, speedLB, speedRB);
-
-        }
-    }
-}
 
 // motor control function
 void motorSpeeds(int speedLF, int speedRF, int speedLB, int speedRB) {
@@ -123,5 +125,53 @@ void motorSpeeds(int speedLF, int speedRF, int speedLB, int speedRB) {
     } else {
         digitalWrite(RB_FR, LOW);
         analogWrite(RB_PWM, abs(speedRB));
+    }
+}
+
+void loop() {
+    // 超過500ms沒接收新的指令，強制停止
+    unsigned currentTime = millis();
+    if (currentTime - lastReceiveTime > 500) {
+        motorSpeeds(0, 0, 0, 0);
+    }
+    // 0xAA代表從開頭進入數據監聽 0x55代表結束監聽回到WAIT_HEADER
+    // 需要確人header, footer皆是正確的才會執行這一段馬達控制
+    while(Serial.available()) {
+        uint8_t c = Serial.read();
+        switch(currentState){
+            case(WAIT_HEADER):
+                if (c == 0xAA) currentState = READ_W1; break;
+            case(READ_W1): 
+                wheelSpeeds[0] = c; 
+                currentState = READ_W2; 
+                break;
+            case(READ_W2): 
+                wheelSpeeds[1] = c; 
+                currentState = READ_W3; 
+                break;
+            case(READ_W3): 
+                wheelSpeeds[2] = c; 
+                currentState = READ_W4; 
+                break;
+            case(READ_W4): 
+                wheelSpeeds[3] = c; 
+                currentState = WAIT_FOOTER; 
+                break;
+            case(WAIT_FOOTER):
+                if (c == 0x55) {
+                    lastReceiveTime = millis();
+                    int speedLF = ((int)wheelSpeeds[0] - 127) * 2;
+                    int speedRF = ((int)wheelSpeeds[1] - 127) * 2;
+                    int speedLB = ((int)wheelSpeeds[2] - 127) * 2;
+                    int speedRB = ((int)wheelSpeeds[3] - 127) * 2;
+                    
+                    motorSpeeds(speedLF, speedRF, speedLB, speedRB);
+
+                    Serial.print("校驗：");
+                    Serial.println(speedLF);
+                }
+                currentState = WAIT_HEADER;
+                break;
+        }       
     }
 }

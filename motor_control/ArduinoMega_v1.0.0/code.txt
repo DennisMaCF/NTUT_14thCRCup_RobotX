@@ -1,0 +1,43 @@
+// --- 你的 Pin 定義請放在這 (LF_FR, LF_PWM 等) ---
+
+enum State : uint8_t { WAIT_HEADER, READ_W1, READ_W2, READ_W3, READ_W4, WAIT_FOOTER };
+State currentState = WAIT_HEADER;
+uint8_t rawSpeeds[4] = {127, 127, 127, 127}; // 預設 127 (停止)
+
+void setup() {
+    Serial.begin(115200);
+    // ... 你的 pinMode 設定 ...
+}
+
+void loop() {
+    while (Serial.available() > 0) {
+        uint8_t c = Serial.read();
+        switch (currentState) {
+            case WAIT_HEADER:
+                if (c == 0xAA) currentState = READ_W1;
+                break;
+            case READ_W1: rawSpeeds[0] = c; currentState = READ_W2; break;
+            case READ_W2: rawSpeeds[1] = c; currentState = READ_W3; break;
+            case READ_W3: rawSpeeds[2] = c; currentState = READ_W4; break;
+            case READ_W4: rawSpeeds[3] = c; currentState = WAIT_FOOTER; break;
+            case WAIT_FOOTER:
+                if (c == 0x55) {
+                    // 將 0-254 映射到 -255 到 255
+                    // 原理：(原始值 - 127) * 2
+                    int v1 = ((int)rawSpeeds[0] - 127) * 2;
+                    int v2 = ((int)rawSpeeds[1] - 127) * 2;
+                    int v3 = ((int)rawSpeeds[2] - 127) * 2;
+                    int v4 = ((int)rawSpeeds[3] - 127) * 2;
+                    
+                    motorSpeeds(v1, v2, v3, v4); // 呼叫你的函式
+                }
+                currentState = WAIT_HEADER;
+                break;
+        }
+    }
+}
+
+// 把你剛才提供的 motorSpeeds 函式貼在下面
+void motorSpeeds(int speedLF, int speedRF, int speedLB, int speedRB) {
+    // ... 你的代碼 ...
+}
