@@ -41,7 +41,7 @@ const int RB_PWM = 5;
 const int RB_OF = A7;
 
 // uint(unsigned integer 8-bit type) 0~255
-enum State: uint8_t {WAIT_HEADER, READ_W1, READ_W2, READ_W3, READ_W4, WAIT_FOOTER};
+enum State: uint8_t {WAIT_HEADER, READ_vx, READ_vy, READ_rotate, WAIT_FOOTER};
 State currentState = WAIT_HEADER;
 /*
 速度計算公式：(x - 127) * 2
@@ -50,11 +50,12 @@ analogWrite(0~255)
 256-126*2=260
 0-127*2=-254
 */
-uint8_t wheelSpeeds[4] = {127, 127, 127, 127};
+uint8_t wheelSpeeds[3] = {0, 0, 0};
 
 // 強制停止計時器
 unsigned long lastReceiveTime = 0;
 
+int vx = 0; int vy = 0; int rotate = 0;
 
 void setup() {
     // 此Serial = Serial0 = debugSerial 默認連電腦USB
@@ -81,7 +82,7 @@ void setup() {
     pinMode(RB_FR, OUTPUT);
     pinMode(RB_PWM, OUTPUT);
     pinMode(RB_OF, OUTPUT);
-
+    
     digitalWrite(LF_OF, HIGH);
     digitalWrite(RF_OF, HIGH);
     digitalWrite(LB_OF, HIGH);
@@ -128,50 +129,69 @@ void motorSpeeds(int speedLF, int speedRF, int speedLB, int speedRB) {
     }
 }
 
-void loop() {
-    // 超過500ms沒接收新的指令，強制停止
-    unsigned currentTime = millis();
-    if (currentTime - lastReceiveTime > 500) {
-        motorSpeeds(0, 0, 0, 0);
-    }
-    // 0xAA代表從開頭進入數據監聽 0x55代表結束監聽回到WAIT_HEADER
-    // 需要確人header, footer皆是正確的才會執行這一段馬達控制
-    while(Serial.available()) {
-        uint8_t c = Serial.read();
-        switch(currentState){
-            case(WAIT_HEADER):
-                if (c == 0xAA) currentState = READ_W1; break;
-            case(READ_W1): 
-                wheelSpeeds[0] = c; 
-                currentState = READ_W2; 
-                break;
-            case(READ_W2): 
-                wheelSpeeds[1] = c; 
-                currentState = READ_W3; 
-                break;
-            case(READ_W3): 
-                wheelSpeeds[2] = c; 
-                currentState = READ_W4; 
-                break;
-            case(READ_W4): 
-                wheelSpeeds[3] = c; 
-                currentState = WAIT_FOOTER; 
-                break;
-            case(WAIT_FOOTER):
-                if (c == 0x55) {
-                    lastReceiveTime = millis();
-                    int speedLF = ((int)wheelSpeeds[0] - 127) * 2;
-                    int speedRF = ((int)wheelSpeeds[1] - 127) * 2;
-                    int speedLB = ((int)wheelSpeeds[2] - 127) * 2;
-                    int speedRB = ((int)wheelSpeeds[3] - 127) * 2;
-                    
-                    motorSpeeds(speedLF, speedRF, speedLB, speedRB);
+/*
+e.g. 前後代表了(+100)or(-100) ...
+左前輪 = 前後 + 左右 + 自轉
+右前輪 = 前後 - 左右 - 自轉
+左後輪 = 前後 - 左右 + 自轉
+右後輪 = 前後 + 左右 - 自轉
 
-                    Serial.print("校驗：");
-                    Serial.println(speedLF);
+順序:左前->右前->左後->右後
+*/
+void drive(int vx, int vy, int rotate) {
+    int speedLf = vx + vy + rotate;
+    int speedLb = vx - vy - rotate;
+    int speedRf = vx - vy + rotate;
+    int speedRb = vx + vy - rotate;
+
+    motorSpeeds(speedLf, speedRf, speedLb, speedRb);
+}
+
+void loop() {
+
+    if (Serial.available()) {
+        // 超過500ms沒接收新的指令，強制停止
+        unsigned currentTime = millis();
+        if (currentTime - lastReceiveTime > 500) {
+            motorSpeeds(0, 0, 0, 0);
+        }
+        // 0xAA代表從開頭進入數據監聽 0x55代表結束監聽回到WAIT_HEADER
+        // 需要確人header, footer皆是正確的才會執行這一段馬達控制
+        while(Serial.available()) {
+            uint8_t c = Serial.read();
+            switch(currentState){
+                case(WAIT_HEADER):
+                    if (c == 0xAA) currentState = READ_vx; 
+                    break;
+                case(READ_vx): 
+                    vx = c; 
+                    currentState = READ_vy;
+                    break;
+                case(READ_vy): 
+                    vy = c; 
+                    currentState = READ_rotate; 
+                    break;
+                case(READ_rotate): 
+                    rotate = c; 
+                    currentState = WAIT_FOOTER; 
+                    break;
+                case(WAIT_FOOTER):
+                    if (c == 0x55) {
+                        lastReceiveTime = millis();
+                        drive(vx, vy, rotate);
+    
+                        Serial.println("Package Received");
+                        Serial.print("校驗：");
+                        Serial.print(vx);
+                        Serial.print(vy);
+                        Serial.println(rotate);
+                    }
+                    currentState = WAIT_HEADER;
+                    break;
                 }
-                currentState = WAIT_HEADER;
-                break;
         }       
+    }
+    else {
+
     }
 }

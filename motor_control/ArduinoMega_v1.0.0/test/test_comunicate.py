@@ -1,37 +1,37 @@
 import serial
 import time
 
-# 1. 設定你的串口名字 (請根據 ls /dev/cu.* 的結果修改)
-# 例如: PORT = '/dev/cu.usbmodem14101'
-PORT = '你的路徑' 
+# port path: pioHome-device
+PORT = '/dev/cu.usbserial-1130' 
 BAUD_RATE = 115200
 
 try:
+    # 開啟Serial
     ser = serial.Serial(PORT, BAUD_RATE, timeout=1)
-    print(f"成功連線至 {PORT}")
-    time.sleep(2) # 等待 Arduino 重啟
+    print(f"嘗試連線至 {PORT}...")
+    time.sleep(2) # 重要：等待 Arduino 重啟
+
+    # 給一個停止指令封包： header, 127, 127, 127, 127, footer
+    # 127對應到公式:(127-127)*2=0
+    packet = bytearray([0xAA, 127, 127, 127, 127, 0x55])
 
     while True:
-        print("\n--- 機器人測試控制 ---")
-        print("請輸入 0-254 (127 為停止，127 以上前進，以下後退)")
-        try:
-            val = int(input("輸入速度值: "))
-            if 0 <= val <= 254:
-                # 2. 打包封包 [Header, W1, W2, W3, W4, Footer]
-                # 我們先讓四個輪子跑一樣的速度
-                packet = bytearray([0xAA, val, val, val, val, 0x55])
-                
-                # 3. 傳送二進位序列
-                ser.write(packet)
-                print(f"已傳送封包: {list(packet)}")
-            else:
-                print("錯誤: 請輸入 0-254 之間的數字")
-        except ValueError:
-            print("請輸入有效的數字")
+        print(f"發送封包: {list(packet)}")
+        ser.write(packet)
+        
+        # 讀取 Arduino 的回報
+        line = ser.readline().decode('utf-8').strip()
+        if line:
+            print(f"Arduino :{line}")
+        
+        time.sleep(1)
 
-except Exception as e:
-    print(f"發生錯誤: {e}")
+except KeyboardInterrupt:
+    print("\n測試停止")
+
+    # 停止傳輸-輸入停止
+    ser.write(bytearray([0xAA, 127, 127, 127, 0x55]))
+    time.sleep(0.1)
 finally:
     if 'ser' in locals():
         ser.close()
-        print("串口已關閉")

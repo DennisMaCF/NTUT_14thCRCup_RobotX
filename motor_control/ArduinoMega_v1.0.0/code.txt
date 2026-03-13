@@ -1,43 +1,26 @@
-// --- 你的 Pin 定義請放在這 (LF_FR, LF_PWM 等) ---
-
-enum State : uint8_t { WAIT_HEADER, READ_W1, READ_W2, READ_W3, READ_W4, WAIT_FOOTER };
-State currentState = WAIT_HEADER;
-uint8_t rawSpeeds[4] = {127, 127, 127, 127}; // 預設 127 (停止)
-
-void setup() {
-    Serial.begin(115200);
-    // ... 你的 pinMode 設定 ...
-}
-
 void loop() {
-    while (Serial.available() > 0) {
-        uint8_t c = Serial.read();
-        switch (currentState) {
-            case WAIT_HEADER:
-                if (c == 0xAA) currentState = READ_W1;
-                break;
-            case READ_W1: rawSpeeds[0] = c; currentState = READ_W2; break;
-            case READ_W2: rawSpeeds[1] = c; currentState = READ_W3; break;
-            case READ_W3: rawSpeeds[2] = c; currentState = READ_W4; break;
-            case READ_W4: rawSpeeds[3] = c; currentState = WAIT_FOOTER; break;
-            case WAIT_FOOTER:
-                if (c == 0x55) {
-                    // 將 0-254 映射到 -255 到 255
-                    // 原理：(原始值 - 127) * 2
-                    int v1 = ((int)rawSpeeds[0] - 127) * 2;
-                    int v2 = ((int)rawSpeeds[1] - 127) * 2;
-                    int v3 = ((int)rawSpeeds[2] - 127) * 2;
-                    int v4 = ((int)rawSpeeds[3] - 127) * 2;
-                    
-                    motorSpeeds(v1, v2, v3, v4); // 呼叫你的函式
-                }
-                currentState = WAIT_HEADER;
-                break;
-        }
-    }
-}
+    int target_Vx = 0;
+    int target_Vy = 0;
+    int target_Rot = 0;
 
-// 把你剛才提供的 motorSpeeds 函式貼在下面
-void motorSpeeds(int speedLF, int speedRF, int speedLB, int speedRB) {
-    // ... 你的代碼 ...
+    // --- 優先級 A：智動指令 (Serial) ---
+    if (Serial.available()) {
+        parseSerialCommand(); // 把你剛才寫的 switch-case 封裝進去
+    }
+
+    // 判斷是否處於智動模式 (500ms 內有收到封包)
+    if (millis() - lastReceiveTime < 500) {
+        target_Vx = (wheelSpeeds[0] - 127) * 2;
+        target_Vy = (wheelSpeeds[1] - 127) * 2;
+        target_Rot = (wheelSpeeds[2] - 127) * 2;
+    } 
+    // --- 優先級 B：手動指令 (遙控器) ---
+    else {
+        // 這裡填入讀取遙控器接收機的邏輯 (例如 Serial1)
+        // target_Vx = map(ch1, 1000, 2000, -255, 255); 
+        // target_Vy = map(ch2, 1000, 2000, -255, 255);
+    }
+
+    // 統一由這行計算並輸出到馬達
+    drive(target_Vx, target_Vy, target_Rot);
 }
