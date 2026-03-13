@@ -146,52 +146,46 @@ void drive(int vx, int vy, int rotate) {
 
     motorSpeeds(speedLf, speedRf, speedLb, speedRb);
 }
-
-void loop() {
-
-    if (Serial.available()) {
-        // 超過500ms沒接收新的指令，強制停止
-        unsigned currentTime = millis();
-        if (currentTime - lastReceiveTime > 500) {
-            motorSpeeds(0, 0, 0, 0);
+void switchStatus(uint8_t c) {
+    switch(currentState){
+        case(WAIT_HEADER):
+            if (c == 0xAA) currentState = READ_vx; 
+            break;
+        case(READ_vx): 
+            vx = c; 
+            currentState = READ_vy;
+            break;
+        case(READ_vy): 
+            vy = c; 
+            currentState = READ_rotate; 
+            break;
+        case(READ_rotate): 
+            rotate = c; 
+            currentState = WAIT_FOOTER; 
+            break;
+        case(WAIT_FOOTER):
+            if (c == 0x55) {
+                lastReceiveTime = millis();
+                drive(vx, vy, rotate);
         }
-        // 0xAA代表從開頭進入數據監聽 0x55代表結束監聽回到WAIT_HEADER
-        // 需要確人header, footer皆是正確的才會執行這一段馬達控制
-        while(Serial.available()) {
-            uint8_t c = Serial.read();
-            switch(currentState){
-                case(WAIT_HEADER):
-                    if (c == 0xAA) currentState = READ_vx; 
-                    break;
-                case(READ_vx): 
-                    vx = c; 
-                    currentState = READ_vy;
-                    break;
-                case(READ_vy): 
-                    vy = c; 
-                    currentState = READ_rotate; 
-                    break;
-                case(READ_rotate): 
-                    rotate = c; 
-                    currentState = WAIT_FOOTER; 
-                    break;
-                case(WAIT_FOOTER):
-                    if (c == 0x55) {
-                        lastReceiveTime = millis();
-                        drive(vx, vy, rotate);
-    
-                        Serial.println("Package Received");
-                        Serial.print("校驗：");
-                        Serial.print(vx);
-                        Serial.print(vy);
-                        Serial.println(rotate);
-                    }
-                    currentState = WAIT_HEADER;
-                    break;
-                }
-        }       
+            currentState = WAIT_HEADER;
+            break;
     }
-    else {
+}
+void loop() {
+    while(Serial.available()) {
+        switchStatus(Serial.read());
+    }
 
+    int vx, vy, rot;
+
+    if (millis() - lastReceiveTime < 500) {
+        vx  = ((int)wheelSpeeds[0] - 127) * 2;
+        vy  = ((int)wheelSpeeds[1] - 127) * 2;
+        rot = ((int)wheelSpeeds[2] - 127) * 2;
+    } else {
+        vx = vy = rot = 0; 
     }
+
+    drive(vx, vy, rot); 
 }

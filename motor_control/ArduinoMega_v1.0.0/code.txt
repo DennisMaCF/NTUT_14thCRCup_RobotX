@@ -1,26 +1,45 @@
+// --- 全域變數（緩衝區） ---
+uint8_t rawData[3] = {127, 127, 127}; 
+
+void parseSerialProtocol(uint8_t c) {
+    switch(currentState) {
+        case WAIT_HEADER:
+            if (c == 0xAA) currentState = READ_vx; 
+            break;
+        case READ_vx: 
+            rawData[0] = c; currentState = READ_vy; break;
+        case READ_vy: 
+            rawData[1] = c; currentState = READ_rotate; break;
+        case READ_rotate: 
+            rawData[2] = c; currentState = WAIT_FOOTER; break;
+        case WAIT_FOOTER:
+            if (c == 0x55) {
+                lastReceiveTime = millis(); // 標記：我們拿到一組完整的、正確的指令了！
+            }
+            currentState = WAIT_HEADER;
+            break;
+    }
+}
+
 void loop() {
-    int target_Vx = 0;
-    int target_Vy = 0;
-    int target_Rot = 0;
-
-    // --- 優先級 A：智動指令 (Serial) ---
-    if (Serial.available()) {
-        parseSerialCommand(); // 把你剛才寫的 switch-case 封裝進去
+    // 1. 解析（只負責填滿 rawData，不宣告移動變數）
+    while(Serial.available()) {
+        parseSerialProtocol(Serial.read());
     }
 
-    // 判斷是否處於智動模式 (500ms 內有收到封包)
+    // 2. 執行（在這裡才宣告變數，並決定要用誰的數據）
+    int vx, vy, rot;
+
     if (millis() - lastReceiveTime < 500) {
-        target_Vx = (wheelSpeeds[0] - 127) * 2;
-        target_Vy = (wheelSpeeds[1] - 127) * 2;
-        target_Rot = (wheelSpeeds[2] - 127) * 2;
-    } 
-    // --- 優先級 B：手動指令 (遙控器) ---
-    else {
-        // 這裡填入讀取遙控器接收機的邏輯 (例如 Serial1)
-        // target_Vx = map(ch1, 1000, 2000, -255, 255); 
-        // target_Vy = map(ch2, 1000, 2000, -255, 255);
+        // 從解析好的「保險箱」rawData 拿數據
+        vx  = ((int)rawData[0] - 127) * 2;
+        vy  = ((int)rawData[1] - 127) * 2;
+        rot = ((int)rawData[2] - 127) * 2;
+    } else {
+        // 超時了，或是想聽遙控器的，在這裡設定 vx, vy, rot
+        vx = vy = rot = 0; 
     }
 
-    // 統一由這行計算並輸出到馬達
-    drive(target_Vx, target_Vy, target_Rot);
+    // 最後才 call 唯一一次驅動
+    drive(vx, vy, rot); 
 }
